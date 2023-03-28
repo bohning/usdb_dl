@@ -16,7 +16,13 @@ from usdb_syncer.resource_dl import ImageKind, download_and_process_image
 from usdb_syncer.song_data import LocalFiles, SongData
 from usdb_syncer.song_txt import Headers, SongTxt
 from usdb_syncer.sync_meta import SyncMeta
-from usdb_syncer.usdb_scraper import SongDetails, get_usdb_login_status
+from usdb_syncer.usdb_scraper import (
+    RequestMethod,
+    SongDetails,
+    get_usdb_login_status,
+    get_usdb_mod_status,
+    get_usdb_page,
+)
 from usdb_syncer.utils import (
     is_name_maybe_with_suffix,
     next_unique_directory,
@@ -162,6 +168,7 @@ class SongLoader(QRunnable):
         _maybe_download_background(ctx)
         _maybe_write_txt(ctx)
         _write_sync_meta(ctx)
+        _maybe_upload_txt(ctx)
         self.logger.info("All done!")
         self.on_finish(
             self.song_id,
@@ -288,6 +295,44 @@ def _maybe_write_txt(ctx: Context) -> None:
 
 def _write_sync_meta(ctx: Context) -> None:
     ctx.sync_meta.to_file(ctx.locations.dir_path)
+
+
+def _maybe_upload_txt(ctx: Context) -> None:
+    if not get_usdb_mod_status():
+        return
+    ctx.logger.info("You are logged in as a moderator - uploading song to usdb.")
+
+    if ctx.txt.meta_tags.cover and ctx.txt.meta_tags.cover.source.endswith(
+        (".jpg", ".jpeg")
+    ):
+        coverinput = ctx.txt.meta_tags.cover.source_url()
+    else:
+        coverinput = ""
+    txt_to_upload = _prepare_txt_for_upload(ctx)
+
+    payload = {
+        "coverinput": coverinput,
+        "sampleinput": "",
+        "txt": txt_to_upload,
+        "filename": ctx.locations.filename_stem + ".txt",
+    }
+
+    html = get_usdb_page(
+        "index.php",
+        RequestMethod.POST,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        params={"link": "editsongsupdate", "id": str(ctx.details.song_id.value)},
+        payload=payload,
+    )
+
+
+def _prepare_txt_for_upload(ctx: Context) -> str:
+    lines = str(ctx.txt).splitlines()
+    lines_with_metatags = [
+        str(ctx.txt.meta_tags) if line.startswith("#VIDEO") else line for line in lines
+    ]
+    txt = "\r\n".join(lines_with_metatags)  # USDB expects \r\n
+    return txt
 
 
 def _ensure_correct_folder_name(locations: Locations) -> None:
