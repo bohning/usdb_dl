@@ -8,6 +8,7 @@ and getters should be added to this module.
 from __future__ import annotations
 
 import os
+import shutil
 import traceback
 from enum import Enum
 from http.cookiejar import CookieJar
@@ -18,6 +19,7 @@ import browser_cookie3
 import keyring
 from PySide6.QtCore import QByteArray, QSettings
 
+from usdb_syncer import path_template, utils
 from usdb_syncer.constants import Usdb
 from usdb_syncer.logger import get_logger
 
@@ -50,6 +52,17 @@ def set_usdb_auth(username: str, password: str) -> None:
         _logger.warning(NO_KEYRING_BACKEND_WARNING)
 
 
+def ffmpeg_is_available() -> bool:
+    if shutil.which("ffmpeg"):
+        return True
+    if (path := get_ffmpeg_dir()) and path not in os.environ["PATH"]:
+        # first run; restore path from settings
+        utils.add_to_system_path(path)
+        if shutil.which("ffmpeg"):
+            return True
+    return False
+
+
 class SettingKey(Enum):
     """Keys for storing and retrieving settings."""
 
@@ -59,6 +72,9 @@ class SettingKey(Enum):
     TXT = "downloads/txt"
     ENCODING = "downloads/encoding"
     NEWLINE = "downloads/newline"
+    FIX_LINEBREAKS = "fixes/linebreaks"
+    FIX_FIRSTWORDSCAPITALIZATION = "fixes/firstwordscapitalization"
+    FIX_SPACES = "fixes/spaces"
     AUDIO = "downloads/audio"
     AUDIO_FORMAT = "downloads/audio_format"
     AUDIO_BITRATE = "downloads/audio_bitrate"
@@ -70,6 +86,7 @@ class SettingKey(Enum):
     VIDEO_FORMAT_NEW = "downloads/video_format_new"
     VIDEO_RESOLUTION_MAX = "downloads/video_resolution_max"
     VIDEO_FPS_MAX = "downloads/video_fps_max"
+    VIDEO_EMBED_ARTWORK = "downloads/video_embed_artwork"
     COVER = "downloads/cover"
     COVER_MAX_SIZE = "downloads/cover_max_size"
     BACKGROUND = "downloads/background"
@@ -79,6 +96,7 @@ class SettingKey(Enum):
     MAIN_WINDOW_STATE = "state/main_window"
     TABLE_VIEW_HEADER_STATE = "list_view/header/state"
     USDB_USER_NAME = "usdb/username"
+    PATH_TEMPLATE = "files/path_template"
 
 
 class Encoding(Enum):
@@ -93,9 +111,9 @@ class Encoding(Enum):
             case Encoding.UTF_8:
                 return "UTF-8"
             case Encoding.UTF_8_BOM:
-                return "UTF-8 BOM"
+                return "UTF-8 BOM (legacy support for older Vocaluxe versions)"
             case Encoding.CP1252:
-                return "CP1252"
+                return "CP1252 (legacy support for older USDX CMD)"
             case _ as unreachable:
                 assert_never(unreachable)
 
@@ -120,6 +138,66 @@ class Newline(Enum):
         if os.linesep == Newline.CRLF.value:
             return Newline.CRLF
         return Newline.LF
+
+
+class FixLinebreaks(Enum):
+    """Supported variants for fixing linebreak timings."""
+
+    DISABLE = 0
+    USDX_STYLE = 1
+    YASS_STYLE = 2
+
+    def __str__(self) -> str:
+        match self:
+            case FixLinebreaks.DISABLE:
+                return "disable"
+            case FixLinebreaks.USDX_STYLE:
+                return "USDX style"
+            case FixLinebreaks.YASS_STYLE:
+                return "YASS style"
+            case _ as unreachable:
+                assert_never(unreachable)
+
+
+class FixSpaces(Enum):
+    """Supported variants for fixing spaces."""
+
+    DISABLE = 0
+    AFTER = 1
+    BEFORE = 2
+
+    def __str__(self) -> str:
+        match self:
+            case FixSpaces.DISABLE:
+                return "disable"
+            case FixSpaces.AFTER:
+                return "after words"
+            case FixSpaces.BEFORE:
+                return "before words"
+            case _ as unreachable:
+                assert_never(unreachable)
+
+
+class CoverMaxSize(Enum):
+    """Maximum cover size."""
+
+    DISABLE = 0
+    PX_1920 = 1920
+    PX_1000 = 1000
+    PX_640 = 640
+
+    def __str__(self) -> str:
+        match self:
+            case CoverMaxSize.DISABLE:
+                return "disable"
+            case CoverMaxSize.PX_1920:
+                return "1920x1920 px"
+            case CoverMaxSize.PX_1000:
+                return "1000x1000 px"
+            case CoverMaxSize.PX_640:
+                return "640x640 px"
+            case _ as unreachable:
+                assert_never(unreachable)
 
 
 class AudioFormat(Enum):
@@ -300,24 +378,33 @@ class VideoContainer(Enum):
     """Video containers that can be requested when downloading with ytdl."""
 
     MP4 = "mp4"
+    MP4_NO_VP9 = "mp4_no_vp9"
     WEBM = "webm"
     BEST = "bestvideo"
 
     def __str__(self) -> str:
         match self:
             case VideoContainer.MP4:
-                return ".mp4"
+                return ".mp4 (any codec)"
+            case VideoContainer.MP4_NO_VP9:
+                return ".mp4 (no VP9)"
             case VideoContainer.WEBM:
-                return ".webm"
+                return ".webm (VP9)"
             case VideoContainer.BEST:
                 return "Best available"
             case _ as unreachable:
                 assert_never(unreachable)
 
     def ytdl_format(self) -> str:
-        if self is VideoContainer.BEST:
-            return "bestvideo*"
-        return f"bestvideo*[ext={self.value}]"
+        match self:
+            case VideoContainer.MP4 | VideoContainer.WEBM:
+                return f"bestvideo*[ext={self.value}]"
+            case VideoContainer.MP4_NO_VP9:
+                return "bestvideo*[ext=mp4][vcodec!~='vp0?9']"
+            case VideoContainer.BEST:
+                return "bestvideo*"
+            case _ as unreachable:
+                assert_never(unreachable)
 
 
 class VideoCodec(Enum):
@@ -488,6 +575,30 @@ def set_txt(value: bool) -> None:
     set_setting(SettingKey.TXT, value)
 
 
+def get_fix_linebreaks() -> FixLinebreaks:
+    return get_setting(SettingKey.FIX_LINEBREAKS, FixLinebreaks.YASS_STYLE)
+
+
+def set_fix_linebreaks(value: FixLinebreaks) -> None:
+    set_setting(SettingKey.FIX_LINEBREAKS, value)
+
+
+def get_fix_first_words_capitalization() -> bool:
+    return get_setting(SettingKey.FIX_FIRSTWORDSCAPITALIZATION, True)
+
+
+def set_fix_first_words_capitalization(value: bool) -> None:
+    set_setting(SettingKey.FIX_FIRSTWORDSCAPITALIZATION, value)
+
+
+def get_fix_spaces() -> FixSpaces:
+    return get_setting(SettingKey.FIX_SPACES, FixSpaces.AFTER)
+
+
+def set_fix_spaces(value: FixSpaces) -> None:
+    set_setting(SettingKey.FIX_SPACES, value)
+
+
 def get_cover() -> bool:
     return get_setting(SettingKey.COVER, True)
 
@@ -496,11 +607,11 @@ def set_cover(value: bool) -> None:
     set_setting(SettingKey.COVER, value)
 
 
-def get_cover_max_size() -> int:
-    return get_setting(SettingKey.COVER_MAX_SIZE, 1920)
+def get_cover_max_size() -> CoverMaxSize:
+    return get_setting(SettingKey.COVER_MAX_SIZE, CoverMaxSize.PX_1920)
 
 
-def set_cover_max_size(value: int) -> None:
+def set_cover_max_size(value: CoverMaxSize) -> None:
     set_setting(SettingKey.COVER_MAX_SIZE, value)
 
 
@@ -513,6 +624,11 @@ def set_browser(value: Browser) -> None:
 
 
 def get_song_dir() -> Path:
+    """Returns the stored song diretory, which may be overwritten by an environment
+    variable.
+    """
+    if path := os.environ.get("SONG_DIR"):
+        return Path(path)
     return get_setting(SettingKey.SONG_DIR, Path("songs").resolve())
 
 
@@ -566,6 +682,14 @@ def get_video_fps() -> VideoFps:
 
 def set_video_fps(value: VideoFps) -> None:
     set_setting(SettingKey.VIDEO_FPS_MAX, value)
+
+
+def get_video_embed_artwork() -> bool:
+    return get_setting(SettingKey.VIDEO_EMBED_ARTWORK, False)
+
+
+def set_video_embed_artwork(value: bool) -> None:
+    set_setting(SettingKey.VIDEO_EMBED_ARTWORK, value)
 
 
 def get_background() -> bool:
@@ -622,3 +746,11 @@ def get_table_view_header_state() -> QByteArray:
 
 def set_table_view_header_state(state: QByteArray) -> None:
     set_setting(SettingKey.TABLE_VIEW_HEADER_STATE, state)
+
+
+def get_path_template() -> path_template.PathTemplate:
+    return get_setting(SettingKey.PATH_TEMPLATE, path_template.PathTemplate.default())
+
+
+def set_path_template(template: path_template.PathTemplate) -> None:
+    set_setting(SettingKey.PATH_TEMPLATE, template)

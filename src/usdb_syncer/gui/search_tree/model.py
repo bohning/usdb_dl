@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QWidget
 
 from usdb_syncer import db
 
-from .item import Filter, TreeItem
+from .item import Filter, FilterItem, RootItem, SavedSearch, TreeItem, VariantItem
 
 QIndex = QModelIndex | QPersistentModelIndex
 
@@ -25,17 +25,35 @@ QIndex = QModelIndex | QPersistentModelIndex
 class TreeModel(QAbstractItemModel):
     """Model for the filter tree."""
 
-    def __init__(self, parent: QWidget, root: TreeItem) -> None:
+    def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
-        self.root = root
+        self.root = RootItem()
+        self.root.set_children(FilterItem(data=f, parent=self.root) for f in Filter)
+        # saved searches is not checkable
+        self.root.children[0].checked = None
 
-    def item_for_index(self, idx: QIndex) -> TreeItem:
-        return cast(TreeItem, idx.internalPointer())
+    def item_for_index(self, idx: QIndex) -> TreeItem | None:
+        if idx.isValid():
+            return cast(TreeItem, idx.internalPointer())
+        return None
 
     def index_for_item(self, item: TreeItem) -> QModelIndex:
         return self.createIndex(item.row_in_parent, 0, item)
 
+    def emit_item_changed(self, item: TreeItem) -> None:
+        idx = self.index_for_item(item)
+        self.dataChanged.emit(idx, idx, [Qt.ItemDataRole.CheckStateRole])
+
     ### change data
+
+    def populate(self) -> None:
+        self.beginResetModel()
+        for item in self.root.children:
+            item.set_children(
+                VariantItem(data=var, parent=item, checkable=item.checkable)
+                for var in item.data.variants()
+            )
+        self.endResetModel()
 
     def set_checked(self, item: TreeItem, checked: bool) -> None:
         if checked and item.parent:
@@ -43,6 +61,30 @@ class TreeModel(QAbstractItemModel):
                 sibling.checked = False
 
         item.checked = checked
+
+    def insert_saved_search(self, search: SavedSearch) -> QModelIndex:
+        with db.transaction():
+            search.insert()
+        parent = self.root.children[0]
+        parent_idx = self.index_for_item(parent)
+        self.beginInsertRows(parent_idx, 0, 0)
+        self.root.children[0].children = (
+            VariantItem(data=search, parent=parent),
+            *self.root.children[0].children,
+        )
+        self.endInsertRows()
+        return self.index(0, 0, parent_idx)
+
+    def delete_saved_search(self, index: QModelIndex) -> None:
+        item = self.item_for_index(index)
+        if not item or not isinstance(item.data, SavedSearch) or not item.parent:
+            return
+        self.beginRemoveRows(index.parent(), index.row(), index.row())
+        with db.transaction():
+            item.data.delete()
+        children = item.parent.children
+        item.parent.children = (*children[: index.row()], *children[index.row() + 1 :])
+        self.endRemoveRows()
 
     ### QAbstractItemModel implementation
 
@@ -52,7 +94,8 @@ class TreeModel(QAbstractItemModel):
         item = cast(TreeItem, parent.internalPointer())
         return len(item.children)
 
-    def columnCount(self, _parent: QIndex = QModelIndex()) -> int:
+    # pylint: disable=unused-argument
+    def columnCount(self, parent: QIndex = QModelIndex()) -> int:
         return 1
 
     def index(
@@ -60,10 +103,10 @@ class TreeModel(QAbstractItemModel):
     ) -> QModelIndex:
         if not self.hasIndex(row, column, parent):
             return QModelIndex()
-        if not parent.isValid():
-            parent_item = self.root
-        else:
+        if parent.isValid():
             parent_item = cast(TreeItem, parent.internalPointer())
+        else:
+            parent_item = self.root
         item = parent_item.children[row]
         return self.createIndex(row, column, item)
 
@@ -85,19 +128,34 @@ class TreeModel(QAbstractItemModel):
         return self.createIndex(parent_item.row_in_parent, 0, parent_item)
 
     def data(self, index: QIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
-        if not index.isValid():
+        if not (item := self.item_for_index(index)):
             return None
 
-        if role == Qt.ItemDataRole.DisplayRole:
-            return str(self.item_for_index(index).data)
+        if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
+            return str(item.data)
         if role == Qt.ItemDataRole.CheckStateRole:
-            return self.item_for_index(index).checked
+            return item.checked if item.checkable else None
         if role == Qt.ItemDataRole.DecorationRole:
-            return self.item_for_index(index).decoration()
+            return item.decoration()
         return None
 
     def flags(self, index: QIndex) -> Qt.ItemFlag:
-        return self.item_for_index(index).flags()
+        if item := self.item_for_index(index):
+            return item.flags()
+        return Qt.ItemFlag.NoItemFlags
+
+    def setData(self, index: QIndex, value: Any, role: int = 0) -> bool:
+        if not (
+            role == Qt.ItemDataRole.EditRole
+            and value
+            and isinstance(value, str)
+            and (item := self.item_for_index(index))
+            and isinstance(item.data, SavedSearch)
+            and item.data.name != value
+        ):
+            return False
+        item.data.update(new_name=value)
+        return True
 
 
 class TreeProxyModel(QSortFilterProxyModel):
@@ -108,16 +166,17 @@ class TreeProxyModel(QSortFilterProxyModel):
         self._source = source_model
         self.setSourceModel(source_model)
         self._filter: str = ""
-        self._matches: dict[Filter, set[str]] = {}
+        self._matches: dict[Filter, set[str | int]] = {}
         self._filter_invalidation_timer = QTimer(parent)
         self._filter_invalidation_timer.setSingleShot(True)
         self._filter_invalidation_timer.setInterval(400)
         self._filter_invalidation_timer.timeout.connect(self._on_filter_changed)
 
     def filterAcceptsRow(self, source_row: int, source_parent: QIndex) -> bool:
-        if not self._filter or not source_parent.isValid():
+        if not self._filter or not (
+            parent := self._source.item_for_index(source_parent)
+        ):
             return True
-        parent = self._source.item_for_index(source_parent)
         return parent.children[source_row].is_accepted(self._matches)
 
     def set_filter(self, text: str) -> None:
@@ -132,6 +191,9 @@ class TreeProxyModel(QSortFilterProxyModel):
                 Filter.TITLE: set(db.search_usdb_song_titles(self._filter)),
                 Filter.EDITION: set(db.search_usdb_song_editions(self._filter)),
                 Filter.LANGUAGE: set(db.search_usdb_song_languages(self._filter)),
+                Filter.YEAR: set(db.search_usdb_song_years(self._filter)),
+                Filter.GENRE: set(db.search_usdb_song_genres(self._filter)),
+                Filter.CREATOR: set(db.search_usdb_song_creators(self._filter)),
             }
         else:
             self._matches = {}

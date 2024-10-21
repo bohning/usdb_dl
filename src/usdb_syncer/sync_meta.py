@@ -9,6 +9,7 @@ from typing import Any, Iterator
 import attrs
 
 from usdb_syncer import SongId, SyncMetaId, db, settings, utils
+from usdb_syncer.custom_data import CustomData
 from usdb_syncer.logger import get_logger
 from usdb_syncer.meta_tags import MetaTags
 
@@ -37,8 +38,13 @@ class ResourceFile:
 
     @classmethod
     def from_nested_dict(cls, dct: Any) -> ResourceFile | None:
-        if dct:
-            return cls(**dct)
+        if (
+            isinstance(dct, dict)
+            and isinstance(fname := dct.get("fname"), str)
+            and isinstance(mtime := dct.get("mtime"), (int, float))
+            and isinstance(resource := dct.get("resource"), str)
+        ):
+            return cls(fname=fname, mtime=int(mtime), resource=resource)
         return None
 
     @classmethod
@@ -81,6 +87,7 @@ class SyncMeta:
     video: ResourceFile | None = None
     cover: ResourceFile | None = None
     background: ResourceFile | None = None
+    custom_data: CustomData = attrs.field(factory=CustomData)
 
     @classmethod
     def new(cls, song_id: SongId, folder: Path, meta_tags: MetaTags) -> SyncMeta:
@@ -101,7 +108,10 @@ class SyncMeta:
             sync_meta_id = SyncMetaId.new()
             new_id = True
         with path.open(encoding="utf8") as file:
-            dct = json.load(file)
+            try:
+                dct = json.load(file)
+            except (json.decoder.JSONDecodeError, UnicodeDecodeError):
+                return None
         if not isinstance(dct, dict):
             return None
         if int(dct["version"]) > SYNC_META_VERSION:
@@ -113,14 +123,15 @@ class SyncMeta:
                 path=path,
                 mtime=utils.get_mtime(path),
                 meta_tags=MetaTags.parse(dct["meta_tags"], _logger),
-                pinned=dct.get("pinned", False),
+                pinned=bool(dct.get("pinned", False)),
                 txt=ResourceFile.from_nested_dict(dct["txt"]),
                 audio=ResourceFile.from_nested_dict(dct["audio"]),
                 video=ResourceFile.from_nested_dict(dct["video"]),
                 cover=ResourceFile.from_nested_dict(dct["cover"]),
                 background=ResourceFile.from_nested_dict(dct["background"]),
+                custom_data=CustomData(dct.get("custom_data")),
             )
-        except (json.decoder.JSONDecodeError, TypeError, KeyError, ValueError):
+        except (TypeError, KeyError, ValueError):
             return None
         if new_id:
             meta.path = path.with_name(sync_meta_id.to_filename())
@@ -144,6 +155,7 @@ class SyncMeta:
         meta.video = ResourceFile.from_db_row(row[12:15])
         meta.cover = ResourceFile.from_db_row(row[15:18])
         meta.background = ResourceFile.from_db_row(row[18:])
+        meta.custom_data = CustomData(db.get_custom_data(meta.sync_meta_id))
         return meta
 
     @classmethod
@@ -164,6 +176,11 @@ class SyncMeta:
         db.delete_resource_files(
             (self.sync_meta_id, kind) for file, kind in files if not file
         )
+        db.delete_custom_meta_data((self.sync_meta_id,))
+        db.upsert_custom_meta_data(
+            db.CustomMetaDataParams(self.sync_meta_id, k, v)
+            for k, v in self.custom_data.items()
+        )
 
     @classmethod
     def upsert_many(cls, metas: list[SyncMeta]) -> None:
@@ -180,6 +197,12 @@ class SyncMeta:
             for meta in metas
             for file, kind in meta.all_resource_files()
             if not file
+        )
+        db.delete_custom_meta_data(m.sync_meta_id for m in metas)
+        db.upsert_custom_meta_data(
+            db.CustomMetaDataParams(m.sync_meta_id, k, v)
+            for m in metas
+            for k, v in m.custom_data.items()
         )
 
     def delete(self) -> None:
@@ -236,4 +259,6 @@ class SyncMetaEncoder(json.JSONEncoder):
             dct = attrs.asdict(o, recurse=False, filter=filt)
             dct["version"] = SYNC_META_VERSION
             return dct
+        if isinstance(o, CustomData):
+            return o.inner()
         return super().default(o)

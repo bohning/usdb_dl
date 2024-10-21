@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from usdb_syncer import settings
+from usdb_syncer import path_template, settings
 
 
 @dataclass(frozen=True)
@@ -12,6 +12,9 @@ class TxtOptions:
 
     encoding: settings.Encoding
     newline: settings.Newline
+    fix_linebreaks: settings.FixLinebreaks
+    fix_first_words_capitalization: bool
+    fix_spaces: settings.FixSpaces
 
 
 @dataclass(frozen=True)
@@ -35,6 +38,7 @@ class VideoOptions:
     reencode_format: settings.VideoCodec | None
     max_resolution: settings.VideoResolution
     max_fps: settings.VideoFps
+    embed_artwork: bool
 
     def ytdl_format(self) -> str:
         fmt = self.format.ytdl_format()
@@ -49,7 +53,7 @@ class VideoOptions:
 class CoverOptions:
     """Settings regarding the cover image to be downloaded."""
 
-    max_size: int | None
+    max_size: settings.CoverMaxSize | None
 
 
 @dataclass(frozen=True)
@@ -67,6 +71,7 @@ class Options:
     """Settings for downloading songs."""
 
     song_dir: Path
+    path_template: path_template.PathTemplate
     txt_options: TxtOptions | None
     audio_options: AudioOptions | None
     browser: settings.Browser
@@ -78,6 +83,7 @@ class Options:
 def download_options() -> Options:
     return Options(
         song_dir=settings.get_song_dir(),
+        path_template=settings.get_path_template(),
         txt_options=_txt_options(),
         audio_options=_audio_options(),
         browser=settings.get_browser(),
@@ -90,7 +96,13 @@ def download_options() -> Options:
 def _txt_options() -> TxtOptions | None:
     if not settings.get_txt():
         return None
-    return TxtOptions(encoding=settings.get_encoding(), newline=settings.get_newline())
+    return TxtOptions(
+        encoding=settings.get_encoding(),
+        newline=settings.get_newline(),
+        fix_linebreaks=settings.get_fix_linebreaks(),
+        fix_first_words_capitalization=settings.get_fix_first_words_capitalization(),
+        fix_spaces=settings.get_fix_spaces(),
+    )
 
 
 def _audio_options() -> AudioOptions | None:
@@ -114,6 +126,7 @@ def _video_options() -> VideoOptions | None:
         ),
         max_resolution=settings.get_video_resolution(),
         max_fps=settings.get_video_fps(),
+        embed_artwork=settings.get_video_embed_artwork(),
     )
 
 

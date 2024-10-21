@@ -15,7 +15,8 @@ from usdb_syncer import db
 class Column(IntEnum):
     """Table columns."""
 
-    SONG_ID = 0
+    SAMPLE_URL = 0
+    SONG_ID = enum.auto()
     ARTIST = enum.auto()
     TITLE = enum.auto()
     LANGUAGE = enum.auto()
@@ -23,6 +24,10 @@ class Column(IntEnum):
     GOLDEN_NOTES = enum.auto()
     RATING = enum.auto()
     VIEWS = enum.auto()
+    YEAR = enum.auto()
+    GENRE = enum.auto()
+    CREATOR = enum.auto()
+    TAGS = enum.auto()
     PINNED = enum.auto()
     TXT = enum.auto()
     AUDIO = enum.auto()
@@ -41,10 +46,19 @@ class Column(IntEnum):
                 return "Language"
             case Column.EDITION:
                 return "Edition"
+            case Column.YEAR:
+                return "Year"
+            case Column.GENRE:
+                return "Genre"
+            case Column.CREATOR:
+                return "Creator"
+            case Column.TAGS:
+                return "Tags"
             case Column.DOWNLOAD_STATUS:
                 return "Status"
             case (
-                Column.SONG_ID
+                Column.SAMPLE_URL
+                | Column.SONG_ID
                 | Column.GOLDEN_NOTES
                 | Column.RATING
                 | Column.VIEWS
@@ -61,8 +75,10 @@ class Column(IntEnum):
 
     # https://github.com/PyCQA/pylint/issues/7857
     @cache  # pylint: disable=method-cache-max-size-none
-    def decoration_data(self) -> QIcon:
+    def decoration_data(self) -> QIcon | None:
         match self:
+            case Column.SAMPLE_URL:
+                return QIcon(":/icons/sample.png")
             case Column.SONG_ID:
                 return QIcon(":/icons/id.png")
             case Column.ARTIST:
@@ -79,6 +95,14 @@ class Column(IntEnum):
                 return QIcon(":/icons/rating.png")
             case Column.VIEWS:
                 return QIcon(":/icons/views.png")
+            case Column.YEAR:
+                return QIcon(":/icons/calendar.png")
+            case Column.GENRE:
+                return QIcon(":/icons/spectrum-absorption.png")
+            case Column.CREATOR:
+                return QIcon(":/icons/quill.png")
+            case Column.TAGS:
+                return QIcon(":/icons/price-tag.png")
             case Column.TXT:
                 return QIcon(":/icons/text.png")
             case Column.AUDIO:
@@ -108,10 +132,15 @@ class Column(IntEnum):
                 | Column.VIEWS
                 | Column.RATING
                 | Column.GOLDEN_NOTES
+                | Column.YEAR
+                | Column.GENRE
+                | Column.CREATOR
+                | Column.TAGS
             ):
                 return None
             case (
-                Column.TXT
+                Column.SAMPLE_URL
+                | Column.TXT
                 | Column.AUDIO
                 | Column.VIDEO
                 | Column.COVER
@@ -124,6 +153,8 @@ class Column(IntEnum):
 
     def song_order(self) -> db.SongOrder:
         match self:
+            case Column.SAMPLE_URL:
+                return db.SongOrder.SAMPLE_URL
             case Column.SONG_ID:
                 return db.SongOrder.SONG_ID
             case Column.ARTIST:
@@ -140,6 +171,14 @@ class Column(IntEnum):
                 return db.SongOrder.RATING
             case Column.VIEWS:
                 return db.SongOrder.VIEWS
+            case Column.YEAR:
+                return db.SongOrder.YEAR
+            case Column.GENRE:
+                return db.SongOrder.GENRE
+            case Column.CREATOR:
+                return db.SongOrder.CREATOR
+            case Column.TAGS:
+                return db.SongOrder.TAGS
             case Column.PINNED:
                 return db.SongOrder.PINNED
             case Column.TXT:
@@ -153,6 +192,52 @@ class Column(IntEnum):
             case Column.BACKGROUND:
                 return db.SongOrder.BACKGROUND
             case Column.DOWNLOAD_STATUS:
-                return db.SongOrder.SYNC_TIME
+                return db.SongOrder.STATUS
+            case unreachable:
+                assert_never(unreachable)
+
+    @classmethod
+    def from_song_order(cls, song_order: db.SongOrder) -> Column:
+        match song_order:
+            case db.SongOrder.SAMPLE_URL:
+                return Column.SAMPLE_URL
+            case db.SongOrder.SONG_ID | db.SongOrder.NONE:
+                return Column.SONG_ID
+            case db.SongOrder.ARTIST:
+                return Column.ARTIST
+            case db.SongOrder.TITLE:
+                return Column.TITLE
+            case db.SongOrder.LANGUAGE:
+                return Column.LANGUAGE
+            case db.SongOrder.EDITION:
+                return Column.EDITION
+            case db.SongOrder.GOLDEN_NOTES:
+                return Column.GOLDEN_NOTES
+            case db.SongOrder.RATING:
+                return Column.RATING
+            case db.SongOrder.VIEWS:
+                return Column.VIEWS
+            case db.SongOrder.YEAR:
+                return Column.YEAR
+            case db.SongOrder.GENRE:
+                return Column.GENRE
+            case db.SongOrder.CREATOR:
+                return Column.CREATOR
+            case db.SongOrder.TAGS:
+                return Column.TAGS
+            case db.SongOrder.PINNED:
+                return Column.PINNED
+            case db.SongOrder.TXT:
+                return Column.TXT
+            case db.SongOrder.AUDIO:
+                return Column.AUDIO
+            case db.SongOrder.VIDEO:
+                return Column.VIDEO
+            case db.SongOrder.COVER:
+                return Column.COVER
+            case db.SongOrder.BACKGROUND:
+                return Column.BACKGROUND
+            case db.SongOrder.STATUS:
+                return Column.DOWNLOAD_STATUS
             case unreachable:
                 assert_never(unreachable)

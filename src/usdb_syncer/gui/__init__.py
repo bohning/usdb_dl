@@ -15,11 +15,29 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import Qt
 
 import tools
-from usdb_syncer import constants, db, settings, song_routines, sync_meta, utils
+from usdb_syncer import (
+    addons,
+    constants,
+    db,
+    errors,
+    events,
+    settings,
+    song_routines,
+    sync_meta,
+    usdb_song,
+    utils,
+)
 
 if TYPE_CHECKING:
     # only import from gui after pyside file generation
     from usdb_syncer.gui.mw import MainWindow
+
+
+SCHEMA_ERROR_MESSAGE = (
+    "Your database cannot be read with this version of USDB Syncer! Either upgrade to a"
+    f" more recent release, or remove the file at '{utils.AppPaths.db}' and restart to "
+    "create a new database."
+)
 
 
 def main() -> None:
@@ -40,7 +58,12 @@ def _run() -> None:
     app = _init_app()
     mw = MainWindow()
     _configure_logging(mw)
-    _load_main_window(mw)
+    try:
+        _load_main_window(mw)
+    except errors.UnknownSchemaError:
+        QtWidgets.QMessageBox.critical(mw, "Version conflict", SCHEMA_ERROR_MESSAGE)
+        return
+    addons.load_all()
     app.exec()
 
 
@@ -67,12 +90,17 @@ def _load_main_window(mw: MainWindow) -> None:
     QtWidgets.QApplication.processEvents()
     splash.showMessage("Loading song database ...", color=Qt.GlobalColor.gray)
     folder = settings.get_song_dir()
-    db.connect(utils.AppPaths.db, trace=bool(os.environ.get("TRACESQL")))
+    db.connect(utils.AppPaths.db)
     with db.transaction():
         song_routines.load_available_songs(force_reload=False)
         song_routines.synchronize_sync_meta_folder(folder)
         sync_meta.SyncMeta.reset_active(folder)
+        usdb_song.UsdbSong.clear_cache()
+        default_search = db.SavedSearch.get_default()
     mw.tree.populate()
+    if default_search:
+        events.SavedSearchRestored(default_search.search).post()
+        logging.info(f"Applied default search '{default_search.name}'.")
     mw.table.search_songs()
     splash.showMessage("Song database successfully loaded.", color=Qt.GlobalColor.gray)
     mw.show()
@@ -126,7 +154,7 @@ def _configure_logging(mw: MainWindow) -> None:
         datefmt="%Y-%m-%d %H:%M:%S",
         encoding="utf-8",
         handlers=(
-            logging.FileHandler(utils.AppPaths.log),
+            logging.FileHandler(utils.AppPaths.log, encoding="utf-8"),
             logging.StreamHandler(sys.stdout),
             _TextEditLogger(mw),
         ),

@@ -1,7 +1,6 @@
 """Dialog to report missing ffmpeg."""
 
 import os
-import shutil
 import sys
 from typing import Callable
 
@@ -16,16 +15,10 @@ def check_ffmpeg(parent: QWidget, on_success: Callable[[], None]) -> None:
     """If ffmpeg is available, can be restored from the settings or is provided
     by the user, executes `on_sucess`.
     """
-    if shutil.which("ffmpeg"):
+    if settings.ffmpeg_is_available():
         on_success()
-        return
-    if (path := settings.get_ffmpeg_dir()) and path not in os.environ["PATH"]:
-        # first run; restore path from settings
-        add_to_system_path(path)
-        if shutil.which("ffmpeg"):
-            on_success()
-            return
-    FfmpegDialog(parent, on_success).show()
+    else:
+        FfmpegDialog(parent, on_success).show()
 
 
 class FfmpegDialog(Ui_Dialog, QDialog):
@@ -35,6 +28,24 @@ class FfmpegDialog(Ui_Dialog, QDialog):
         self.on_success = on_success
         super().__init__(parent=parent)
         self.setupUi(self)
+        match sys.platform:
+            case "win32":
+                self.label_windows.setVisible(True)
+                self.label_macos.setVisible(False)
+                self.label_linux.setVisible(False)
+                self.setFixedHeight(194)
+            case "darwin":
+                self.label_windows.setVisible(False)
+                self.label_macos.setVisible(True)
+                self.label_linux.setVisible(False)
+                self.setFixedHeight(140)
+            case "linux" | "linux2":
+                self.label_windows.setVisible(False)
+                self.label_macos.setVisible(False)
+                self.label_linux.setVisible(True)
+                self.setFixedHeight(140)
+            case _:
+                pass
         self.set_location.clicked.connect(self._set_location)
 
     def _set_location(self) -> None:

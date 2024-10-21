@@ -36,6 +36,20 @@ def _root() -> Path:
     return Path(__file__).parent.parent.parent.absolute()
 
 
+def url_from_resource(resource: str) -> str | None:
+    if "://" in resource:
+        return resource
+    if "/" in resource:
+        return f"https://{resource}"
+    vimeo_id_pattern = r"^\d{2,10}$"
+    if re.match(vimeo_id_pattern, resource):
+        return f"https://vimeo.com/{resource}"
+    yt_id_pattern = r"^[A-Za-z0-9_-]{11}$"
+    if re.match(yt_id_pattern, resource):
+        return f"https://www.youtube.com/watch?v={resource}"
+    return None
+
+
 class AppPaths:
     """App data paths."""
 
@@ -46,10 +60,11 @@ class AppPaths:
     profile = Path(root, "usdb_syncer.prof")
     db = Path(_app_dirs.user_data_dir, "usdb_syncer.db")
     sql = Path(root, "src", "usdb_syncer", "db", "sql")
+    addons = Path(_app_dirs.user_data_dir, "addons")
 
     @classmethod
     def make_dirs(cls) -> None:
-        cls.log.parent.mkdir(parents=True, exist_ok=True)
+        cls.addons.mkdir(parents=True, exist_ok=True)
         cls.song_list.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -167,6 +182,17 @@ def is_name_maybe_with_suffix(text: str, name: str) -> bool:
     return not tail or re.fullmatch(r" \(\d+\)", tail) is not None
 
 
+def path_matches_maybe_with_suffix(path: Path, search: Path) -> bool:
+    """True if `path` matches `search`, with an optional suffix ` (n)` for some
+    number n.
+    """
+    path = normalize_path(path)
+    search = normalize_path(search)
+    if path.parent != search.parent:
+        return False
+    return is_name_maybe_with_suffix(path.name, search.name)
+
+
 def open_file_explorer(path: Path) -> None:
     _logger.debug(f"Opening '{path}' with file explorer.")
     if sys.platform == "win32":
@@ -182,7 +208,21 @@ def add_to_system_path(path: str) -> None:
 
 
 def normalize(text: str) -> str:
+    """Return the Unicode NFC form of the string."""
     return unicodedata.normalize("NFC", text)
+
+
+def normalize_path(path: Path) -> Path:
+    return Path(*(normalize(p) for p in path.parts))
+
+
+def compare_unicode_paths(lhs: Path, rhs: Path) -> bool:
+    """Checks two paths for equality, taking into account implicit Unicode normalization
+    on macOS.
+    """
+    if sys.platform == "darwin":
+        return normalize(str(lhs)) == normalize(str(rhs))
+    return lhs == rhs
 
 
 def resource_file_ending(name: str) -> str:

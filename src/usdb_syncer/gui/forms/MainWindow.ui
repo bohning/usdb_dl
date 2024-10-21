@@ -31,16 +31,16 @@
        </sizepolicy>
       </property>
       <property name="editTriggers">
-       <set>QAbstractItemView::NoEditTriggers</set>
+       <set>QAbstractItemView::EditTrigger::NoEditTriggers</set>
       </property>
       <property name="alternatingRowColors">
        <bool>true</bool>
       </property>
       <property name="selectionMode">
-       <enum>QAbstractItemView::ExtendedSelection</enum>
+       <enum>QAbstractItemView::SelectionMode::ExtendedSelection</enum>
       </property>
       <property name="selectionBehavior">
-       <enum>QAbstractItemView::SelectRows</enum>
+       <enum>QAbstractItemView::SelectionBehavior::SelectRows</enum>
       </property>
       <property name="sortingEnabled">
        <bool>true</bool>
@@ -132,14 +132,14 @@
          <string>0/0</string>
         </property>
         <property name="alignment">
-         <set>Qt::AlignCenter</set>
+         <set>Qt::AlignmentFlag::AlignCenter</set>
         </property>
        </widget>
       </item>
       <item>
        <spacer name="horizontalSpacer_2">
         <property name="orientation">
-         <enum>Qt::Horizontal</enum>
+         <enum>Qt::Orientation::Horizontal</enum>
         </property>
         <property name="sizeHint" stdset="0">
          <size>
@@ -178,6 +178,9 @@
    </layout>
   </widget>
   <widget class="QMenuBar" name="menubar">
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
    <property name="geometry">
     <rect>
      <x>0</x>
@@ -196,6 +199,7 @@
     <addaction name="action_settings"/>
     <addaction name="action_meta_tags"/>
     <addaction name="action_generate_song_pdf"/>
+    <addaction name="action_generate_song_json"/>
    </widget>
    <widget class="QMenu" name="menu_usdb">
     <property name="title">
@@ -224,13 +228,24 @@
     <property name="toolTipsVisible">
      <bool>true</bool>
     </property>
+    <widget class="QMenu" name="menu_custom_data">
+     <property name="title">
+      <string>Custom Data</string>
+     </property>
+     <property name="icon">
+      <iconset resource="../resources/resources.qrc">
+       <normaloff>:/icons/drawer.png</normaloff>:/icons/drawer.png</iconset>
+     </property>
+    </widget>
     <addaction name="action_songs_download"/>
     <addaction name="action_songs_abort"/>
     <addaction name="action_show_in_usdb"/>
+    <addaction name="action_post_comment_in_usdb"/>
     <addaction name="separator"/>
     <addaction name="action_open_song_folder"/>
     <addaction name="action_delete"/>
     <addaction name="action_pin"/>
+    <addaction name="menu_custom_data"/>
    </widget>
    <widget class="QMenu" name="menu_local">
     <property name="title">
@@ -243,6 +258,12 @@
     <addaction name="action_import_usdb_ids"/>
     <addaction name="action_export_usdb_ids"/>
    </widget>
+   <widget class="QMenu" name="menu_view">
+    <property name="title">
+     <string>View</string>
+    </property>
+   </widget>
+   <addaction name="menu_view"/>
    <addaction name="menu_songs"/>
    <addaction name="menu_usdb"/>
    <addaction name="menu_local"/>
@@ -362,7 +383,7 @@
        <item>
         <spacer name="horizontalSpacer">
          <property name="orientation">
-          <enum>Qt::Horizontal</enum>
+          <enum>Qt::Orientation::Horizontal</enum>
          </property>
          <property name="sizeHint" stdset="0">
           <size>
@@ -409,7 +430,7 @@
      <item>
       <widget class="QTreeView" name="search_view">
        <property name="frameShape">
-        <enum>QFrame::NoFrame</enum>
+        <enum>QFrame::Shape::NoFrame</enum>
        </property>
       </widget>
      </item>
@@ -441,6 +462,15 @@
    </property>
    <property name="text">
     <string>Generate Song List (PDF)</string>
+   </property>
+  </action>
+  <action name="action_generate_song_json">
+   <property name="icon">
+    <iconset resource="../resources/resources.qrc">
+     <normaloff>:/icons/report.png</normaloff>:/icons/report.png</iconset>
+   </property>
+   <property name="text">
+    <string>Generate Song List (JSON)</string>
    </property>
   </action>
   <action name="action_refetch_song_list">
@@ -494,7 +524,7 @@
      <normaloff>:/icons/document-import.png</normaloff>:/icons/document-import.png</iconset>
    </property>
    <property name="text">
-    <string>Export IDs to File</string>
+    <string>Export selected IDs to File</string>
    </property>
    <property name="toolTip">
     <string>Write the IDs of the selected songs to a file</string>
@@ -512,15 +542,10 @@
   <action name="action_usdb_login">
    <property name="icon">
     <iconset resource="../resources/resources.qrc">
-     <normaloff>:/icons/faviconUSDB.ico</normaloff>:/icons/faviconUSDB.ico</iconset>
+     <normaloff>:/icons/faviconUSDB.png</normaloff>:/icons/faviconUSDB.png</iconset>
    </property>
    <property name="text">
     <string>USDB Login</string>
-   </property>
-  </action>
-  <action name="actionHelp">
-   <property name="text">
-    <string>Help...</string>
    </property>
   </action>
   <action name="action_about">
@@ -535,10 +560,19 @@
   <action name="action_show_in_usdb">
    <property name="icon">
     <iconset resource="../resources/resources.qrc">
-     <normaloff>:/icons/faviconUSDB.ico</normaloff>:/icons/faviconUSDB.ico</iconset>
+     <normaloff>:/icons/faviconUSDB.png</normaloff>:/icons/faviconUSDB.png</iconset>
    </property>
    <property name="text">
     <string>Show on USDB</string>
+   </property>
+  </action>
+  <action name="action_post_comment_in_usdb">
+   <property name="icon">
+    <iconset resource="../resources/resources.qrc">
+     <normaloff>:/icons/balloon.png</normaloff>:/icons/balloon.png</iconset>
+   </property>
+   <property name="text">
+    <string>Post Comment</string>
    </property>
   </action>
   <action name="action_open_song_folder">
@@ -584,6 +618,55 @@
    </property>
    <property name="text">
     <string>Abort Download</string>
+   </property>
+  </action>
+  <action name="action_delete_saved_search">
+   <property name="text">
+    <string>Delete</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+  <action name="action_add_saved_search">
+   <property name="text">
+    <string>Save current search</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+  <action name="action_update_saved_search">
+   <property name="text">
+    <string>Update with current search</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+  <action name="action_set_saved_search_default">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Apply on startup</string>
+   </property>
+   <property name="toolTip">
+    <string>If checked, this search will automatically applied every time you start the application.</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+  <action name="action_set_saved_search_subscribed">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Download new matches</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
    </property>
   </action>
  </widget>
