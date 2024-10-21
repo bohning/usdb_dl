@@ -38,6 +38,7 @@ pyinstaller-hooks-contrib = "*"
 altgraph = "*"
 macholib = {version = "*", markers="sys_platform == 'darwin'"}
 pywin32-ctypes = {version = "*", markers="sys_platform == 'win32'"}
+reportlab = "^4.2.5"
 
 [tool.poetry.group.dev.dependencies]
 tox = "*"
